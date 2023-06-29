@@ -10,17 +10,57 @@ knitr::opts_chunk$set(echo = FALSE)
 source("Libraries.R")
 ```
 
+```{r read receiver locations}
+recs <- read.csv("./data/Receivers_IDs_locaties_deployment_2023.csv") %>%
+  st_as_sf(coords = c('Long', 'Lat'), crs="EPSG:4326", remove=F)
+
+fish.ids <- read.csv("./data/Tagged fish_2022.csv")
+```
+
 ## R Markdown
 
 ```{r read detection data}
 # Detection data
 path <- "./data/Detections"
-filelist <- list.files(path, pattern = '.csv', full.names = T) #%>% paste(path, ., sep='/')
+filelist <- list.files(path, pattern = '.csv', full.names = T) 
 
 # Read data into list
-det_list <- lapply(setNames(filelist, make.names(gsub("HR2-180 ", "", gsub('*.csv$', '', basename(filelist))))),
-                    read.csv)
+dets <- lapply(setNames(filelist, 
+                        make.names(gsub("HR2-180 ", "", gsub('*.csv$', '', basename(filelist))))),
+               read.csv)
 
+for (name in names(dets)) {
+  print(name)
+    if (length(colnames(dets[[name]])) == 15) {
+      dets[[name]] <- dets[[name]] %>%
+        dplyr::select(-Raw.Data)
+      }
+}
+
+dets <- bind_rows(dets)
+dets$Device.Time..UTC. <- as.POSIXct(dets$Device.Time..UTC.,
+                                     format="%Y-%m-%d %H:%M:%OS", tz="UTC")
+```
+
+```{r plot fish in system full period}
+ggplot(dets[((dets$Serial.Number == 461885) & 
+             (dets$ID %in% fish.ids$Tag_ID)),]) + 
+  geom_point(mapping=aes(x=Device.Time..UTC., y=ID))
+```
+
+```{r get subset of data}
+time1 <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
+time2 <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
+
+subset <- dets[((dets$Device.Time..UTC. > time1) & 
+                (dets$Device.Time..UTC. < time2)),] %>%
+  filter((ID %in% fish.ids$Tag_ID) | (ID %in% recs$Tag_ID))
+```
+
+```{r plot fish in system 1-week subset}
+ggplot(subset[((subset$Serial.Number == 461885) & 
+             (subset$ID %in% fish.ids$Tag_ID)),]) + 
+  geom_point(mapping=aes(x=Device.Time..UTC., y=ID))
 ```
 
 ## Including Plots
@@ -28,7 +68,7 @@ det_list <- lapply(setNames(filelist, make.names(gsub("HR2-180 ", "", gsub('*.cs
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
-plot(pressure)
+
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
