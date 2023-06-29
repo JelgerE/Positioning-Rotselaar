@@ -8,11 +8,13 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 source("Libraries.R")
+options(digits = 15)
 ```
 
 ```{r read receiver locations}
 recs <- read.csv("./data/Receivers_IDs_locaties_deployment_2023.csv") %>%
-  st_as_sf(coords = c('Long', 'Lat'), crs="EPSG:4326", remove=F)
+  st_as_sf(coords = c('Long', 'Lat'), crs="EPSG:4326", remove=F) %>%
+  st_transform(crs="EPSG:32632")
 
 fish.ids <- read.csv("./data/Tagged fish_2022.csv")
 ```
@@ -60,15 +62,65 @@ subset <- dets[((dets$Device.Time..UTC. > time1) &
 ```{r plot fish in system 1-week subset}
 ggplot(subset[((subset$Serial.Number == 461885) & 
              (subset$ID %in% fish.ids$Tag_ID)),]) + 
-  geom_point(mapping=aes(x=Device.Time..UTC., y=ID))
+  geom_point(mapping=aes(x=Device.Time..UTC., y=as.factor(ID)))
 ```
+```{r subset 1 day}
+day <- subset[((lubridate::date(subset$Device.Time..UTC.) == as.POSIXct("04-05-2023", format = "%d-%m-%Y")) &
+               ((subset$ID == 58410) | (subset$ID %in% recs$Tag_ID))),]
 
+#day$Device.Time..UTC. <- as.character(day$Device.Time..UTC.)
+```
 ## Including Plots
 
-You can also embed plots, for example:
+```{r construc Detection object}
+day <- day[((day$Detection.Type == "HR") | (day$Detection.Type == "HR_SELF")),]
+day <- day[(day$Serial.Number != "461214"),]
 
-```{r pressure, echo=FALSE}
 
+X <- split(day, day$Serial.Number)
+unique(X[[1]]$Detection.Type)
+det_list <- vector("list", length=8)
+names(det_list) <- names(X)
+for (d in 1:length(X)) {
+  rec <- X[[d]]
+  colnames(rec) <- colnames(day)
+  detect_time <- iso2DetectionTime(rec$Time)
+  recX <- st_coordinates(recs[((recs$Serial_number == unique(rec$Serial.Number) & 
+                               (recs$Detection.Type == "HR"))),])[,1]
+  recY <- st_coordinates(recs[((recs$Serial_number == unique(rec$Serial.Number) & 
+                               (recs$Detection.Type == "HR"))),])[,2]
+  send_id <- as.character(recs[((recs$Serial_number == unique(rec$Serial.Number) & 
+                               (recs$Detection.Type == "HR"))),]$Tag_ID)
+    
+  det_list[[d]] <- Detections(detect_times = detect_time, detect_id = factor(rec$ID), send_id = send_id,
+                              x = recX , y = recY, type = rec$Detection.Type, sync_tags = send_id)
+}
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r make DetectionList object}
+detlist <- DetectionsList(det_list[[1]], det_list[[2]], det_list[[3]], det_list[[4]], 
+                          det_list[[5]], det_list[[6]], det_list[[7]], det_list[[8]])
+
+plot(detlist, main="Awesome")
+
+det_lst2 <- detlst_apply(detlist, remove_double_detections, dd_thresh=0.1)
+```
+
+```{r}
+sync_order = data.frame(emit = c("62206"),
+                        detect = c("62209", "62553", "62207", "62211", "62551", "62552",
+                                   "62208"))
+offset_times <- seq(as.POSIXct("2023-05-04 01:59:36.463979"),
+                    as.POSIXct("2023-05-05 02:01:48.211218"),
+                    by=(3600/2))
+
+sync_model <- KaltoaClockSync(
+  sync_order = sync_order,
+  min_interval = 270, max_interval = 330,
+  max_transmission_latency = 60,
+  clock_time = offset_times
+)
+
+sync_fit <- fit_drift(sync_model, det_lst2, cores = 4)
+
+```
