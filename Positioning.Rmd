@@ -1,0 +1,34 @@
+---
+title: "Positioning"
+author: "Jelger Elings"
+date: "2023-06-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+source("Libraries.R")
+```
+
+## R Markdown
+
+```{r read detection data}
+# Detection data
+path <- "./data/Detections"
+filelist <- list.files(path, pattern = '.csv', full.names = T) #%>% paste(path, ., sep='/')
+
+# Read data into list
+det_list <- lapply(setNames(filelist, make.names(gsub("HR2-180 ", "", gsub('*.csv$', '', basename(filelist))))),
+                    read.csv)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
