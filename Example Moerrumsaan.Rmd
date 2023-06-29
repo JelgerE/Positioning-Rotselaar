@@ -17,9 +17,24 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r cars}
-str(moerrumsaan_df)
+mdf <- moerrumsaan_df
+
+detect_time <- iso2DetectionTime(mdf$time)
+
+detext <- Detections(detect_times = detect_time,
+                     detect_id = factor(mdf$id),
+                     x=481472, y=6243500, send)
 ```
 
+
+```{r}
+
+
+seq(as.POSIXct("2021-05-18 18:00:00"),
+    as.POSIXct("2021-05-19 06:00:00"),
+    by=3600)
+
+```
 ## Including Plots
 
 You can also embed plots, for example:
