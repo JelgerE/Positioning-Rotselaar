@@ -78,7 +78,6 @@ day <- day[(day$Serial.Number != "461214"),]
 
 
 X <- split(day, day$Serial.Number)
-unique(X[[1]]$Detection.Type)
 det_list <- vector("list", length=8)
 names(det_list) <- names(X)
 for (d in 1:length(X)) {
