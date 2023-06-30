@@ -1,0 +1,229 @@
+---
+title: "Positioning"
+author: "Jelger Elings"
+date: "2023-06-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(kaltoa, quietly = T)
+require(sf, quietly = T)
+require(ggpot2, quietly = T)
+require(stringr, quietly = T)
+
+options(digits = 15)
+```
+
+Load metadata and get UTM projections of receiver locations
+
+```{r, read receiver locations}
+recs <- read.csv("./data/Receivers_IDs_locaties_deployment_2023.csv") %>%
+  st_as_sf(coords = c('Long', 'Lat'), crs="EPSG:4326", remove=F) %>%
+  st_transform(crs="EPSG:32632")
+# Remove HR column
+recs <-subset(recs, Detection.Type != "HR")
+
+fish.ids <- read.csv("./data/Tagged fish_2022.csv")
+```
+
+
+Add list of file names to metadata table.
+
+```{r}
+files_df <- data.frame(file = dir(path = "./data/Detections/", pattern = "*.\\.csv"))
+mtch <- stringr::str_match(files_df$file, "HR2-180 (\\d+)\\.csv")
+files_df$Serial_number <- mtch[,2]
+
+meta <- merge(files_df, recs, by = "Serial_number")
+meta <- subset(meta, select = c("Serial_number", "file", "Tag_ID", "Full_Tag_ID", "geometry"))
+meta
+```
+
+Loop through files, and create time filtered detections object for each receiver.
+
+```{r}
+path <- "./data/Detections"
+
+# times to filter
+time_start <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
+time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
+
+# Save a list fo detections objects
+dets <- list()
+for(i in 1:nrow(meta)){
+  
+  # load detections into temporary data.frame
+  file = meta$file[i]
+  tmp <- read.csv(paste(path, file, sep = '/'))
+  
+  # Find times of interest
+  times <- as.POSIXct(tmp$Device.Time..UTC.)
+  idx <- which(times >= time_start & times <= time_stop)
+  
+  # ------ Save as detections object
+  # Auxiliary data that maight be interesting to keep
+  df_aux = data.frame(
+    db_signal = tmp$Signal.Strength..dB.[idx],
+    db_noise = tmp$Noise..dB.[idx],
+    quality = tmp$Quality.Score[idx])
+  # Coordinate of receiver
+  coord <- st_coordinates(meta$geometry[i])
+  # Make detections object
+  dets[[i]] <- Detections(
+    detect_times = iso2DetectionTime(times[idx]), 
+    detect_id = tmp$ID[idx], 
+    type = tmp$Detection.Type[idx], 
+    send_id = meta$Tag_ID[i], 
+    x = coord[1], 
+    y = coord[2], 
+    sync_tags = meta$Tag_ID[i], 
+    aux = df_aux)
+}
+rm(tmp)
+
+# Convert list of Detections into a DetectionsList object
+detlst <- do.call(DetectionsList, dets)
+```
+
+Here, I'm removing the HR sync tags.  IMO, PPM is better for clock synchronizations.
+We don't need _that_ many detections per hour, and also PPM detections _should_ already be filtering out short reflections, so this should be higher quality data.
+
+```{r}
+
+# Ignore (1) HR_self emissions, and (2) HR detections that match the IDs of sync tags.
+detlst_filt <- subset(
+  detlst, type != "HR_SELF" & !(type == "HR" & detect_id %in% meta$Tag_ID))
+detlst <- detlst_filt
+
+detlst
+plot(detlst)
+
+# Save as a RData file
+saveRDS(object = detlst, file = "./Positioning_(James)_detlst.rds")
+```
+
+Before syncing, lets make a table showing the sync-tag detections across receiver pairs.
+This will inform us for the sync-order specification.
+
+```{r}
+SyncTagConnectivity(detlst)
+```
+
+Receiver 62208's tag seems to have the best detections in the array.
+We'll use this as the central receiver 
+
+## Synchronizing the clocks
+
+Okay... this dataset is a bit big, so I did something different than in the example docs.
+I'm going to calculate offset values for the very start of the data.
+I'll then use those first fitted values as initial values when fitting the full data.
+This should make fitting *much* more stable
+
+First, lets just start with the first hour.
+
+```{r, results='hide', message=F, warning=FALSE}
+sync_order = data.frame(
+  emit = c("62208"),
+  detect = c("62207", "62211", "62552", "62553", "62209"))
+
+# First, lets find the clock drift values for the first hour
+detlst_start <- subset(
+  detlst, 
+  time >= "2023-05-01 02:00:00" & time <= "2023-05-01 03:00:00", 
+  type %in% c("PPM", "PPM_SELF"))
+
+offset_times_start <- as.POSIXct(c("2023-05-01 02:00:00", "2023-05-01 03:00:00"))
+
+sync_model_start <- KaltoaClockSync(
+  sync_order = sync_order,
+  min_interval = 270, max_interval = 330,
+  max_transmission_latency = 120,
+  clock_time = offset_times_start
+)
+sync_fit_start <- fit_drift(sync_model_start, detlst_start, cores = 4)
+```
+
+```{r}
+sync_fit_start
+plot(sync_fit_start)
+
+detlst_start_corr <- synchronize(sync_fit_start, detlst_start)
+plot(SyncTagLatency(detlst_start_corr))
+```
+
+If you want to dive into the raw Bayesian outputs, you can view the stan trace plots. 
+
+```{r}
+# Chow HMC traceplots for first receiver pair in list
+rstan::traceplot(sync_fit_start@stan[[1]])
+```
+
+What we're looking for here is that our 4 chains are mixing well with each other.
+When a fit fails, one, or a few, of the chains usually gets stuck in some far off region of the posterior.
+
+Finally, lets fit our a day of data using these starting drift values.
+The clock drift model can get very slow when applied to too much data.
+
+```{r}
+# Set offset times we want drift corrections for
+offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"), 
+                    as.POSIXct("2023-05-04 02:00:00"), by = 3600)
+
+# Create starting drift values from our previous fits
+init_drift <- matrix(nrow = nrow(sync_order), ncol = length(offset_times))
+for(i in 1:nrow(init_drift)){
+  init_drift[i,] <- sync_fit_start@clock_drift[i,1]
+}
+init_drift
+```
+
+Now we can run the fit on a larger chunk of data.
+
+Here I'm going to speed things up by subsampling the dataset.
+I'll use every 4th sync tag emission for clock synchronization.
+
+```{r, message=F, warning=FALSE}
+sync_model <- KaltoaClockSync(
+  sync_order = sync_order,
+  min_interval = 270, max_interval = 330,
+  max_transmission_latency = 120,
+  clock_time = offset_times, 
+  clock_drift = init_drift, 
+  offset_max = 120
+)
+plot(sync_model)
+
+detlst_tmp <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
+
+SyncTagConnectivity(detlst_tmp)
+
+sync_fit <- fit_drift(
+  sync_model, 
+  detlst_tmp,
+  fixed_init_drift = T,
+  cores = 4, iter = 4000)
+```
+
+I doubled the iterations here because I was getting an low effective sample size warning.
+
+Show the final results, and apply the corrections to the dataset.
+
+```{r}
+sync_fit
+plot(sync_fit)
+
+detlst_corr <- synchronize(sync_fit, detlst_tmp)
+```
+
+Show latency plots.
+
+```{r}
+synclat <- SyncTagLatency(detlst_corr, group_thresh = 0.5)
+plot(synclat)
+```
+
+For the whole dataset, find some good starting values that work on 24 sections of data, then you can write a loop to synchronize every day automatically.
+From my testing here, 24 hour periods are pretty easy to fit.  
+Larger periods like 2 days, however, tend to get stuck.
