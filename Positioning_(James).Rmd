@@ -59,7 +59,7 @@ for(i in 1:nrow(meta)){
   tmp <- read.csv(paste(path, file, sep = '/'))
   
   # Find times of interest
-  times <- as.POSIXct(tmp$Device.Time..UTC.)
+  times <- as.POSIXct(tmp$Device.Time..UTC., format = "%Y-%m-%d %H:%M:%OS")
   idx <- which(times >= time_start & times <= time_stop)
   
   # ------ Save as detections object
@@ -108,7 +108,7 @@ Before syncing, lets make a table showing the sync-tag detections across receive
 This will inform us for the sync-order specification.
 
 ```{r}
-kaltoa::SyncTagConnectivity(detlst)
+SyncTagConnectivity(detlst)
 ```
 
 Receiver 62208's tag seems to have the best detections in the array.
@@ -125,8 +125,8 @@ First, lets just start with the first hour.
 
 ```{r, results='hide', message=F, warning=FALSE}
 sync_order = data.frame(
-  emit = c("62553"),
-  detect = c("62207", "62208", "62211", "62552", "62209", "62206", "62551"))
+  emit = c("62208"),
+  detect = c("62207", "62211", "62552", "62209", "62206", "62551", "62553"))
 
 # First, lets find the clock drift values for the first hour
 detlst_start <- subset(
