@@ -116,93 +116,46 @@ We'll use this as the central receiver
 
 ## Synchronizing the clocks
 
-Okay... this dataset is a bit big, so I did something different than in the example docs.
-I'm going to calculate offset values for the very start of the data.
-I'll then use those first fitted values as initial values when fitting the full data.
-This should make fitting *much* more stable
-
-First, lets just start with the first hour.
-
-```{r, results='hide', message=F, warning=FALSE}
-sync_order = data.frame(
-  emit = c("62208"),
-  detect = c("62207", "62211", "62552", "62553", "62209"))
-
-# First, lets find the clock drift values for the first hour
-detlst_start <- subset(
-  detlst, 
-  time >= "2023-05-01 02:00:00" & time <= "2023-05-01 03:00:00", 
-  type %in% c("PPM", "PPM_SELF"))
-
-offset_times_start <- as.POSIXct(c("2023-05-01 02:00:00", "2023-05-01 03:00:00"))
-
-sync_model_start <- KaltoaClockSync(
-  sync_order = sync_order,
-  min_interval = 270, max_interval = 330,
-  max_transmission_latency = 120,
-  clock_time = offset_times_start
-)
-sync_fit_start <- fit_drift(sync_model_start, detlst_start, cores = 4)
-```
-
-```{r}
-sync_fit_start
-plot(sync_fit_start)
-
-detlst_start_corr <- synchronize(sync_fit_start, detlst_start)
-plot(SyncTagLatency(detlst_start_corr))
-```
-
-If you want to dive into the raw Bayesian outputs, you can view the stan trace plots. 
-
-```{r}
-# Chow HMC traceplots for first receiver pair in list
-rstan::traceplot(sync_fit_start@stan[[1]])
-```
-
-What we're looking for here is that our 4 chains are mixing well with each other.
-When a fit fails, one, or a few, of the chains usually gets stuck in some far off region of the posterior.
-
-Finally, lets fit our a day of data using these starting drift values.
-The clock drift model can get very slow when applied to too much data.
+here, we're synchronizing in 24 hour chunks.
 
 ```{r}
 # Set offset times we want drift corrections for
 offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"), 
                     as.POSIXct("2023-05-04 02:00:00"), by = 3600)
 
-# Create starting drift values from our previous fits
-init_drift <- matrix(nrow = nrow(sync_order), ncol = length(offset_times))
-for(i in 1:nrow(init_drift)){
-  init_drift[i,] <- sync_fit_start@clock_drift[i,1]
-}
-init_drift
-```
+sync_order = data.frame(
+  emit = c("62208"),
+  detect = c("62207", "62211", "62552", "62553", "62209"))
 
-Now we can run the fit on a larger chunk of data.
+# subset 24 hour of detections data
+detlst_24 <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
 
-Here I'm going to speed things up by subsampling the dataset.
-I'll use every 4th sync tag emission for clock synchronization.
-
-```{r, message=F, warning=FALSE}
+# make clock sync model
 sync_model <- KaltoaClockSync(
   sync_order = sync_order,
   min_interval = 270, max_interval = 330,
   max_transmission_latency = 120,
   clock_time = offset_times, 
-  clock_drift = init_drift, 
   offset_max = 120
 )
 plot(sync_model)
 
-detlst_tmp <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
+# View sync tag connectivity for this period
+SyncTagConnectivity(detlst_24)
 
-SyncTagConnectivity(detlst_tmp)
+# Set initial drift values
+int_drft <- init_drift(sync_model, detlst_24)
+int_drft
 
+drift(sync_model) <- int_drft$clock_drift
+```
+
+Now we'll fit the model.
+
+```{r, message=F, warning=FALSE}
 sync_fit <- fit_drift(
   sync_model, 
-  detlst_tmp,
-  fixed_init_drift = T,
+  detlst_24,
   cores = 4, iter = 4000)
 ```
 
@@ -214,7 +167,7 @@ Show the final results, and apply the corrections to the dataset.
 sync_fit
 plot(sync_fit)
 
-detlst_corr <- synchronize(sync_fit, detlst_tmp)
+detlst_corr <- synchronize(sync_fit, detlst_24)
 ```
 
 Show latency plots.
@@ -223,7 +176,3 @@ Show latency plots.
 synclat <- SyncTagLatency(detlst_corr, group_thresh = 0.5)
 plot(synclat)
 ```
-
-For the whole dataset, find some good starting values that work on 24 sections of data, then you can write a loop to synchronize every day automatically.
-From my testing here, 24 hour periods are pretty easy to fit.  
-Larger periods like 2 days, however, tend to get stuck.
