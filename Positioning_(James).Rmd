@@ -3,6 +3,9 @@ title: "Positioning"
 author: "Jelger Elings"
 date: "2023-06-28"
 output: html_document
+editor_options: 
+  markdown: 
+    wrap: sentence
 ---
 
 ```{r setup, include=FALSE}
@@ -27,7 +30,6 @@ recs <-subset(recs, Detection.Type != "HR")
 
 fish.ids <- read.csv("./data/Tagged fish_2022.csv")
 ```
-
 
 Add list of file names to metadata table.
 
@@ -87,8 +89,9 @@ rm(tmp)
 detlst <- do.call(DetectionsList, dets)
 ```
 
-Here, I'm removing the HR sync tags.  IMO, PPM is better for clock synchronizations.
-We don't need _that_ many detections per hour, and also PPM detections _should_ already be filtering out short reflections, so this should be higher quality data.
+Here, I'm removing the HR sync tags.
+IMO, PPM is better for clock synchronizations.
+We don't need *that* many detections per hour, and also PPM detections *should* already be filtering out short reflections, so this should be higher quality data.
 
 ```{r}
 
@@ -112,7 +115,7 @@ SyncTagConnectivity(detlst)
 ```
 
 Receiver 62208's tag seems to have the best detections in the array.
-We'll use this as the central receiver 
+We'll use this as the central receiver
 
 ## Synchronizing the clocks
 
@@ -154,7 +157,7 @@ detlst_start_corr <- synchronize(sync_fit_start, detlst_start)
 plot(SyncTagLatency(detlst_start_corr))
 ```
 
-If you want to dive into the raw Bayesian outputs, you can view the stan trace plots. 
+If you want to dive into the raw Bayesian outputs, you can view the stan trace plots.
 
 ```{r}
 # Chow HMC traceplots for first receiver pair in list
@@ -226,5 +229,9 @@ plot(synclat)
 ```
 
 For the whole dataset, find some good starting values that work on 24 sections of data, then you can write a loop to synchronize every day automatically.
-From my testing here, 24 hour periods are pretty easy to fit.  
+From my testing here, 24 hour periods are pretty easy to fit.\
 Larger periods like 2 days, however, tend to get stuck.
+
+```{r}
+
+```
