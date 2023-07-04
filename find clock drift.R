@@ -1,0 +1,5 @@
+sort(diff(sort(c(subset(detlst_start$`62208`, sync_emission)$second, subset(detlst_start$`62207`, detect_id == "62208")$second))))
+sort(diff(sort(c(subset(detlst_start$`62208`, sync_emission)$second, subset(detlst_start$`62211`, detect_id == "62208")$second))))
+sort(diff(sort(c(subset(detlst_start$`62208`, sync_emission)$second, subset(detlst_start$`62552`, detect_id == "62208")$second))))
+sort(diff(sort(c(subset(detlst_start$`62208`, sync_emission)$second, subset(detlst_start$`62553`, detect_id == "62208")$second))))
+sort(diff(sort(c(subset(detlst_start$`62208`, sync_emission)$second, subset(detlst_start$`62209`, detect_id == "62208")$second))))
