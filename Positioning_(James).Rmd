@@ -49,8 +49,8 @@ Loop through files, and create time filtered detections object for each receiver
 path <- "./data/Detections"
 
 # times to filter
-time_start <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
-time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
+time_start <- as.POSIXct("09-05-2023", format="%d-%m-%Y", tz="UTC")
+time_stop <- as.POSIXct("17-05-2023", format="%d-%m-%Y", tz="UTC")
 
 # Save a list fo detections objects
 dets <- list()
@@ -180,7 +180,7 @@ init_drift <- matrix(nrow = nrow(sync_order), ncol = length(offset_times))
 for(i in 1:nrow(init_drift)){
   init_drift[i,] <- sync_fit_start@clock_drift[i,1]
 }
-init_drift
+#init_drift
 ```
 
 Now we can run the fit on a larger chunk of data.
@@ -203,10 +203,11 @@ detlst_tmp <- subset(detlst, time >= offset_times[1] & time <= offset_times[leng
 
 SyncTagConnectivity(detlst_tmp)
 
+init_drift <- init_drift(sync_model, detlst_tmp)
+
 sync_fit <- fit_drift(
   sync_model, 
   detlst_tmp,
-  fixed_init_drift = T,
   cores = 4, iter = 4000)
 ```
 
