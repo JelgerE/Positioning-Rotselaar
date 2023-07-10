@@ -27,6 +27,9 @@ recs <- read.csv("./data/Receivers_IDs_locaties_deployment_2023.csv") %>%
   st_transform(crs="EPSG:32632")
 # Remove HR column
 recs <-subset(recs, Detection.Type != "HR")
+if (62209 %in% recs$Tag_ID) {
+  recs[(recs$Tag_ID == 62209),]$Tag_ID <- 62920
+}
 
 fish.ids <- read.csv("./data/Tagged fish_2022.csv")
 ```
@@ -49,8 +52,8 @@ Loop through files, and create time filtered detections object for each receiver
 path <- "./data/Detections"
 
 # times to filter
-time_start <- as.POSIXct("09-05-2023", format="%d-%m-%Y", tz="UTC")
-time_stop <- as.POSIXct("17-05-2023", format="%d-%m-%Y", tz="UTC")
+time_start <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
+time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
 
 # Save a list fo detections objects
 dets <- list()
@@ -101,7 +104,7 @@ detlst_filt <- subset(
 detlst <- detlst_filt
 
 detlst
-plot(detlst)
+plot(detlst_filt)
 
 # Save as a RData file
 saveRDS(object = detlst, file = "./Positioning_(James)_detlst.rds")
@@ -131,7 +134,7 @@ First, lets just start with the first hour.
 ```{r, results='hide', message=F, warning=FALSE}
 sync_order = data.frame(
   emit = c("62208"),
-  detect = c("62207", "62211", "62552", "62209", "62206", "62551", "62553"))
+  detect = c("62207", "62211", "62552", "62920", "62206", "62551", "62553"))
 
 # First, lets find the clock drift values for the first hour
 detlst_start <- subset(
@@ -171,14 +174,13 @@ When a fit fails, one, or a few, of the chains usually gets stuck in some far of
 
 Finally, lets fit our a day of data using these starting drift values.
 The clock drift model can get very slow when applied to too much data.
->>>>>>> 17a1f0f7c3154af24db0d797ed109c86364da0f6
+
 
 ```{r}
 # Set offset times we want drift corrections for
 offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"), 
                     as.POSIXct("2023-05-04 02:00:00"), by = 3600)
 
-<<<<<<< HEAD
 # Create starting drift values from our previous fits
 init_drift <- matrix(nrow = nrow(sync_order), ncol = length(offset_times))
 for(i in 1:nrow(init_drift)){
@@ -190,7 +192,7 @@ for(i in 1:nrow(init_drift)){
 ```{r}
 sync_order = data.frame(
   emit = c("62208"),
-  detect = c("62207", "62211", "62552", "62553", "62209"))
+  detect = c("62207", "62211", "62552", "62553", "62920"))
 
 # subset 24 hour of detections data
 detlst_24 <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
