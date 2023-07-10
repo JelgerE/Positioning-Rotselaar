@@ -6,3 +6,4 @@ junk/
 data/
 *_files/
 *.rds
+*.html
