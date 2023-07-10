@@ -119,6 +119,8 @@ We'll use this as the central receiver
 
 ## Synchronizing the clocks
 
+here, we're synchronizing in 24 hour chunks.
+
 Okay... this dataset is a bit big, so I did something different than in the example docs.
 I'm going to calculate offset values for the very start of the data.
 I'll then use those first fitted values as initial values when fitting the full data.
@@ -169,12 +171,14 @@ When a fit fails, one, or a few, of the chains usually gets stuck in some far of
 
 Finally, lets fit our a day of data using these starting drift values.
 The clock drift model can get very slow when applied to too much data.
+>>>>>>> 17a1f0f7c3154af24db0d797ed109c86364da0f6
 
 ```{r}
 # Set offset times we want drift corrections for
 offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"), 
                     as.POSIXct("2023-05-04 02:00:00"), by = 3600)
 
+<<<<<<< HEAD
 # Create starting drift values from our previous fits
 init_drift <- matrix(nrow = nrow(sync_order), ncol = length(offset_times))
 for(i in 1:nrow(init_drift)){
@@ -183,31 +187,38 @@ for(i in 1:nrow(init_drift)){
 #init_drift
 ```
 
-Now we can run the fit on a larger chunk of data.
+```{r}
+sync_order = data.frame(
+  emit = c("62208"),
+  detect = c("62207", "62211", "62552", "62553", "62209"))
 
-Here I'm going to speed things up by subsampling the dataset.
-I'll use every 4th sync tag emission for clock synchronization.
+# subset 24 hour of detections data
+detlst_24 <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
 
-```{r, message=F, warning=FALSE}
+# make clock sync model
 sync_model <- KaltoaClockSync(
   sync_order = sync_order,
   min_interval = 270, max_interval = 330,
   max_transmission_latency = 120,
   clock_time = offset_times, 
-  clock_drift = init_drift, 
   offset_max = 120
 )
 plot(sync_model)
 
-detlst_tmp <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
+# View sync tag connectivity for this period
+SyncTagConnectivity(detlst_24)
 
-SyncTagConnectivity(detlst_tmp)
+# Set initial drift values
+int_drft <- init_drift(sync_model, detlst_24)
+int_drft
+```
 
-init_drift <- init_drift(sync_model, detlst_tmp)
+Now we'll fit the model.
 
+```{r, message=F, warning=FALSE}
 sync_fit <- fit_drift(
   sync_model, 
-  detlst_tmp,
+  detlst_24,
   cores = 4, iter = 4000)
 ```
 
@@ -219,7 +230,7 @@ Show the final results, and apply the corrections to the dataset.
 sync_fit
 plot(sync_fit)
 
-detlst_corr <- synchronize(sync_fit, detlst_tmp)
+detlst_corr <- synchronize(sync_fit, detlst_24)
 ```
 
 Show latency plots.
@@ -233,6 +244,4 @@ For the whole dataset, find some good starting values that work on 24 sections o
 From my testing here, 24 hour periods are pretty easy to fit.\
 Larger periods like 2 days, however, tend to get stuck.
 
-```{r}
 
-```
