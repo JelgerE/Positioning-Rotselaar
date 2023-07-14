@@ -8,6 +8,10 @@ editor_options:
     wrap: sentence
 ---
 
+to fix:
+ => fit_offset does not run. Needs latency object? 
+  -> running 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, results = "hide")
 
@@ -58,17 +62,19 @@ time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
 # Save a list fo detections objects
 dets <- list()
 for(i in 1:nrow(meta)){
-  #print(meta$Serial_number[i])
+  print(meta$Serial_number[i])
   # load detections into temporary data.frame
   file = meta$file[i]
   tmp <- read.csv(paste(path, file, sep = '/'))
   
   # Find times of interest
-  times <- as.POSIXct(tmp$Device.Time..UTC., format = "%Y-%m-%d %H:%M:%OS")
+  times <- tmp$Device.Time..UTC.#as.POSIXct(tmp[[i]]$Device.Time..UTC., format = "%Y-%m-%d %H:%M:%OS")
   idx <- which(times >= time_start & times <= time_stop)
   
+  detect_times <- iso2DetectionTime(times[idx])
+  
   # ------ Save as detections object
-  # Auxiliary data that maight be interesting to keep
+  # Auxiliary data that might be interesting to keep
   df_aux = data.frame(
     db_signal = tmp$Signal.Strength..dB.[idx],
     db_noise = tmp$Noise..dB.[idx],
@@ -116,84 +122,41 @@ This will inform us for the sync-order specification. Receiver 62208's tag seems
 SyncTagConnectivity(detlst)
 ```
 
-
-
-
-```{r, results='asis'}
+```{r}
 sync_order = data.frame(
   emit = c("62208"),
   detect = c("62207", "62211", "62552", "62553", "62920"))
 
 # subset 24 hour of detections data
-offset_times <- seq(as.POSIXct("2023-05-02 02:00:00"),
-                    as.POSIXct("2023-05-03 02:00:00"),
+offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"),
+                    as.POSIXct("2023-05-04 02:00:00"),
                     by=3600)
 detlst_24 <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
 
-# make clock sync model
-sync_model <- KaltoaClockSync(
-  sync_order = sync_order,
-  min_interval = 270, max_interval = 330,
-  max_transmission_latency = 120,
-  clock_time = offset_times, 
-  offset_max = 120
-)
-plot(sync_model)
 
-# View sync tag connectivity for this period
-SyncTagConnectivity(detlst_24)
+sync_model <- KaltoaClockSync(sync_order = sync_order,
+                              min_interval = 270, max_interval = 330,
+                              max_transmission_latency = 120,
+                              clock_time = offset_times,
+                              offset_max = 120)
 
-# Set initial drift values
 int_drft <- init_drift(sync_model, detlst_24)
-int_drft$diff[5,24:25] <- 0
-```
+int_drft
 
-```{r}
 drift(sync_model) <- int_drft$clock_drift
-```
 
-Now we'll fit the model.
+sync_fit <- fit_drift(sync_model,      
+                      detlst_24,
+                      cores = 4, iter = 4000)
 
-```{r, echo=T, message=F, warning=FALSE}
-sync_fit <- fit_drift(
-  sync_model, 
-  detlst_24,
-  cores = 4, iter = 4000)
-
-t(sync_fit@clock_drift)
-```
-
-Showing the bayesian output shows that the different chains all converge at roughly the same values.
-
-```{r echo=T, warning=FALSE}
-rstan::traceplot(sync_fit@stan[[1]])
-```
-
-I doubled the iterations here because I was getting an low effective sample size warning.
-
-Show the final results, and apply the corrections to the dataset.
-
-```{r}
-sync_fit
-plot(sync_fit)
-
-detlst_corr <- synchronize(sync_fit, detlst_24)
-```
-
-Show latency plots.
-
-```{r}
-synclat <- SyncTagLatency(detlst_corr)
-plot(synclat)
-```
-
-```{r}
-det_emit <- remove_double_detections(detlst_24[["62208"]], dd_thresh = 0.5)
-det_recv <- remove_double_detections(detlst_24[["62211"]], dd_thresh = 0.5)
-
-Latency(det_emit, det_recv)
-```
-
+plot(detlst_24)
+latency <- SyncTagLatency(detlst_24)
+latency$millisecond
+plot(SyncTagLatency(detlst = detlst_24))
 
 fit_offsets(clocksync = sync_fit, detlst = detlst_24)
-?Latency
+
+detlst_corr <- synchronize(sync_fit, detlst_24) 
+
+SyncTagConnectivity(detlst_24)
+```

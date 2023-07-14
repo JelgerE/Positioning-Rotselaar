@@ -36,6 +36,14 @@ if (62209 %in% recs$Tag_ID) {
 fish.ids <- read.csv("./data/Tagged fish_2022.csv")
 ```
 
+```{r}
+leaflet(recs) %>%
+  addTiles() %>%
+  addLabelOnlyMarkers(label = ~Tag_ID,
+                      labelOptions = labelOptions(noHide = TRUE,
+                                                  textOnly = T))
+```
+
 ## Including Plots
 
 You can also embed plots, for example:
