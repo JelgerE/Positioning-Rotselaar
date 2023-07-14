@@ -1,0 +1,178 @@
+---
+title: "Synchronize full dataset"
+author: "Jelger Elings"
+date: "2023-07-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, results = "hide")
+
+require(kaltoa, quietly = T)
+require(sf, quietly = T)
+require(ggplot2, quietly = T)
+require(stringr, quietly = T)
+require(lubridate)
+
+options(digits = 15)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r, read receiver locations, echo=TRUE}
+recs <- read.csv("./data/Receivers_IDs_locaties_deployment_2023.csv") %>%
+  st_as_sf(coords = c('Long', 'Lat'), crs="EPSG:4326", remove=F) %>%
+  st_transform(crs="EPSG:32632")
+# Remove HR column
+recs <-subset(recs, Detection.Type != "HR")
+if (62209 %in% recs$Tag_ID) {
+  recs[(recs$Tag_ID == 62209),]$Tag_ID <- 62920
+}
+
+fish.ids <- read.csv("./data/Tagged fish_2022.csv")
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r, Add list of file names to metadata table}
+files_df <- data.frame(file = dir(path = "./data/Detections/", pattern = "*.\\.csv"))
+mtch <- stringr::str_match(files_df$file, "HR2-180 (\\d+)\\.csv")
+files_df$Serial_number <- mtch[,2]
+
+meta <- merge(files_df, recs, by = "Serial_number")
+meta <- subset(meta, select = c("Serial_number", "file", "Tag_ID", "Full_Tag_ID", "geometry"))
+meta
+```
+
+```{r, Loop through files, and create time filtered detections object for each receiver}
+path <- "./data/Detections"
+
+# times to filter
+time_start <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
+time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
+
+# Save a list fo detections objects
+dets <- list()
+for(i in 1:nrow(meta)){
+  #print(meta$Serial_number[i])
+  # load detections into temporary data.frame
+  file = meta$file[i]
+  tmp <- read.csv(paste(path, file, sep = '/'))
+  
+  # Find times of interest
+  times <- as.POSIXct(tmp$Device.Time..UTC., format = "%Y-%m-%d %H:%M:%OS")
+  idx <- which(times >= time_start & times <= time_stop)
+  
+  # ------ Save as detections object
+  # Auxiliary data that maight be interesting to keep
+  df_aux = data.frame(
+    db_signal = tmp$Signal.Strength..dB.[idx],
+    db_noise = tmp$Noise..dB.[idx],
+    quality = tmp$Quality.Score[idx])
+  # Coordinate of receiver
+  coord <- st_coordinates(meta$geometry[i])
+  # Make detections object
+  dets[[i]] <- Detections(
+    detect_times = iso2DetectionTime(times[idx]), 
+    detect_id = tmp$ID[idx], 
+    type = tmp$Detection.Type[idx], 
+    send_id = meta$Tag_ID[i], 
+    x = coord[1], 
+    y = coord[2], 
+    sync_tags = meta$Tag_ID[i], 
+    aux = df_aux)
+}
+rm(tmp)
+
+# Convert list of Detections into a DetectionsList object
+detlst <- do.call(DetectionsList, dets)
+```
+
+```{r}
+# Ignore (1) HR_self emissions, and (2) HR detections that match the IDs of sync tags.
+detlst_filt <- subset(
+  detlst, type != "HR_SELF" & !(type == "HR" & detect_id %in% meta$Tag_ID))
+detlst <- detlst_filt
+
+#detlst
+plot(detlst_filt)
+
+# Save as a RData file
+saveRDS(object = detlst, file = "./Positioning_(James)_detlst.rds")
+```
+
+```{r, results='asis'}
+sync_order = data.frame(
+  emit = c("62208"),
+  detect = c("62207", "62211", "62552", "62553", "62920"))
+```
+
+```{r}
+seqlist <- as.data.frame(matrix(nrow = 24, ncol = 2))
+colnames(seqlist) <- c("start", "end")
+
+seqlist$start <- seq(as.POSIXct("2023-05-02 02:00:00"),
+                     as.POSIXct("2023-05-05 02:00:00"),
+                     by=(3600*24))
+seqlist$end <- seq(as.POSIXct("2023-05-03 02:00:00"),
+                   as.POSIXct("2023-05-08 02:00:00"),
+                   by=(3600*24))
+
+for (n in 1:nrow(seqlist)) {
+  offset_times <- seq(seqlist$start[n],
+                      seqlist$end[n],
+                      by=3600)
+  
+  detlst_24 <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
+  
+  sync_model <- KaltoaClockSync(
+    sync_order = sync_order,
+    min_interval = 270, max_interval = 330,
+    max_transmission_latency = 120,
+    clock_time = offset_times, 
+    offset_max = 120
+    )
+  plot(sync_model)
+  
+  # View sync tag connectivity for this period
+  SyncTagConnectivity(detlst_24)
+  
+  # Set initial drift values
+  int_drft <- init_drift(sync_model, detlst_24)
+  
+  saveRDS(object = int_drft, 
+          file=paste("./int_drifts/", as.character(date(seqlist$start[n])), ".rds", sep=""))
+  
+  drift(sync_model) <- int_drft$clock_drift
+  
+  sync_fit <- fit_drift(sync_model, 
+                        detlst_24,
+                        cores = 4, iter = 4000)
+  
+  saveRDS(object = sync_fit,
+          file=paste("./models/", as.character(date(seqlist$start[n])), ".rds", sep=""))
+  
+  rstan::traceplot(sync_fit@stan[[1]])
+  
+  ggsave(plot=last_plot(), 
+         paste("./images/rstan/", as.character(date(seqlist$start[n])), ".png", sep=""),
+         dpi="retina")
+  
+  synclat <- SyncTagLatency(detlst_corr, group_thresh = 0.5)
+  plot(synclat)
+  
+  ggsave(plot=last_plot(), 
+         paste("./images/synclat/", as.character(date(seqlist$start[n])), ".png", sep=""),
+         dpi="retina")
+  
+  sink(file = "drift_corr.log"); sync_fit;  sink(file = NULL)
+  
+}
+```
+
