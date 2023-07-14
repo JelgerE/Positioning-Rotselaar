@@ -134,7 +134,7 @@ detlst_24 <- subset(detlst, time >= offset_times[1] & time <= offset_times[lengt
 sync_model <- KaltoaClockSync(
   sync_order = sync_order,
   min_interval = 270, max_interval = 330,
-  max_transmission_latency = 60,
+  max_transmission_latency = 120,
   clock_time = offset_times, 
   offset_max = 120
 )
@@ -145,7 +145,10 @@ SyncTagConnectivity(detlst_24)
 
 # Set initial drift values
 int_drft <- init_drift(sync_model, detlst_24)
+int_drft$diff[5,24:25] <- 0
+```
 
+```{r}
 drift(sync_model) <- int_drft$clock_drift
 ```
 
@@ -185,7 +188,12 @@ plot(synclat)
 ```
 
 ```{r}
-fit_offsets(clocksync = sync_fit, detlst = detlst_24)
+det_emit <- remove_double_detections(detlst_24[["62208"]], dd_thresh = 0.5)
+det_recv <- remove_double_detections(detlst_24[["62211"]], dd_thresh = 0.5)
+
+Latency(det_emit, det_recv)
 ```
 
 
+fit_offsets(clocksync = sync_fit, detlst = detlst_24)
+?Latency
