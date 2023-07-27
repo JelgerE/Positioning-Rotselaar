@@ -6,8 +6,14 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-source("Libraries.R")
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, results = "hide")
+
+require(kaltoa, quietly = T)
+require(sf, quietly = T)
+require(ggpot2, quietly = T)
+require(stringr, quietly = T)
+
+options(digits = 15)
 ```
 
 ## R Markdown
@@ -17,23 +23,50 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r cars}
-mdf <- moerrumsaan_df
+#mdf <- moerrumsaan_df
 
-detect_time <- iso2DetectionTime(mdf$time)
+#detect_time <- iso2DetectionTime(mdf$time)
 
-detext <- Detections(detect_times = detect_time,
-                     detect_id = factor(mdf$id),
-                     x=481472, y=6243500, send)
+#detect <- Detections(detect_times = detect_time,
+#                     detect_id = factor(mdf$id),
+#                     x=481472, y=6243500, send_id = "62041", depth = 3,
+#                     type = mdf$type, sync_tags = "62041")
+
+#unique(mdf$id)
+
+#detlst <- DetectionsList(det_1, det_2, det_3, det_4, det_5, det_6)
+
+detlst_sub <- subset(
+  moerrumsaan_detlst_raw,
+  second >= as.POSIXct("2021-05-08 20:00:00") & type %in% c("PPM", "PPM_SELF"))  
+detlst_sub
 ```
 
 
 ```{r}
+sync_order = data.frame(
+  emit = c("62074"),
+  detect = c("62581", "62368", "62584", "62041", "62042"))
+# Make a vector of times to calculate clock drift corrections for.
 
+offset_times <- seq(
+  as.POSIXct("2021-05-08 18:00:00"),
+  as.POSIXct("2021-05-09 06:00:00"), by = 3600)
 
-seq(as.POSIXct("2021-05-18 18:00:00"),
-    as.POSIXct("2021-05-19 06:00:00"),
-    by=3600)
+sync_model <- KaltoaClockSync(
+  sync_order = sync_order,
+  max_transmission_latency =  60,
+  min_interval = 270, max_interval = 330,
+  clock_time = offset_times)
 
+int_drft <- init_drift(sync_model, moerrumsaan_detlst_raw, 
+                       window = 3600, res = 1)
+
+drift(sync_model) <- int_drft$clock_drift
+
+sync_fit <- fit_drift(sync_model, detlst = moerrumsaan_detlst_raw, cores = 4)
+
+fit_offsets(clocksync = sync_model, detlst = moerrumsaan_detlst_raw)
 ```
 ## Including Plots
 
