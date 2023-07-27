@@ -6,8 +6,9 @@
 junk/
 data/
 images/
-
+int_drifts/
 *_files/
+
 *.rds
 *.html
 *.log
