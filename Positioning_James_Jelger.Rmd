@@ -8,9 +8,10 @@ editor_options:
     wrap: sentence
 ---
 
+
 to fix:
  => fit_offset does not run. Needs latency object? 
-  -> running 
+  -> running SyncTagLatency shows latency object for 1 rec-pair only (62551-62552). Why not the others? 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, results = "hide")
@@ -41,7 +42,6 @@ fish.ids <- read.csv("./data/Tagged fish_2022.csv")
 ```
 
 
-
 ```{r, Add list of file names to metadata table}
 files_df <- data.frame(file = dir(path = "./data/Detections/", pattern = "*.\\.csv"))
 mtch <- stringr::str_match(files_df$file, "HR2-180 (\\d+)\\.csv")
@@ -62,7 +62,7 @@ time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
 # Save a list fo detections objects
 dets <- list()
 for(i in 1:nrow(meta)){
-  print(meta$Serial_number[i])
+  #print(meta$Serial_number[i])
   # load detections into temporary data.frame
   file = meta$file[i]
   tmp <- read.csv(paste(path, file, sep = '/'))
@@ -125,7 +125,7 @@ SyncTagConnectivity(detlst)
 ```{r}
 sync_order = data.frame(
   emit = c("62208"),
-  detect = c("62207", "62211", "62552", "62553", "62920"))
+  detect = c("62206", "62207", "62208", "62211", "62551", "62552", "62553", "62920"))
 
 # subset 24 hour of detections data
 offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"),
@@ -149,14 +149,14 @@ sync_fit <- fit_drift(sync_model,
                       detlst_24,
                       cores = 4, iter = 4000)
 
+plot(sync_fit)
+rstan::traceplot(sync_fit@stan[[1]])
+
 plot(detlst_24)
 latency <- SyncTagLatency(detlst_24)
-latency$millisecond
 plot(SyncTagLatency(detlst = detlst_24))
 
-fit_offsets(clocksync = sync_fit, detlst = detlst_24)
+fit_offsets(clocksync = sync_model, detlst = detlst_24)
 
 detlst_corr <- synchronize(sync_fit, detlst_24) 
-
-SyncTagConnectivity(detlst_24)
 ```
