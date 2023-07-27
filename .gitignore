@@ -1,9 +1,16 @@
+# Project files
 .Rproj.user
 .Rhistory
-.RData
+*.RData
 .Ruserdata
-junk/
+# Local dataset
 data/
+# Rmd compilation files
 *_files/
 *.rds
 *.html
+# Ignore local data folder
+/data
+
+# ???
+junk/

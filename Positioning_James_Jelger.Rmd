@@ -118,45 +118,90 @@ saveRDS(object = detlst, file = "./Positioning_(James)_detlst.rds")
 Before syncing, lets make a table showing the sync-tag detections across receiver pairs.
 This will inform us for the sync-order specification. Receiver 62208's tag seems to have the best detections in the array. We'll use this as the central receiver
 
-```{r include=TRUE}
+```{r}
 SyncTagConnectivity(detlst)
 ```
 
 ```{r}
 sync_order = data.frame(
   emit = c("62208"),
-  detect = c("62206", "62207", "62208", "62211", "62551", "62552", "62553", "62920"))
+  detect = c("62206", "62207", "62211", "62551", "62552", "62553", "62920"))
 
 # subset 24 hour of detections data
 offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"),
                     as.POSIXct("2023-05-04 02:00:00"),
                     by=3600)
-detlst_24 <- subset(detlst, time >= offset_times[1] & time <= offset_times[length(offset_times)])
+detlst_24 <- subset(
+  detlst_filt,
+  time >= offset_times[1] & time <= offset_times[length(offset_times)])
 
-
+# Init a clocksync model
 sync_model <- KaltoaClockSync(sync_order = sync_order,
                               min_interval = 270, max_interval = 330,
                               max_transmission_latency = 120,
                               clock_time = offset_times,
                               offset_max = 120)
 
+# Estimate initial drift values
 int_drft <- init_drift(sync_model, detlst_24)
 int_drft
-
 drift(sync_model) <- int_drft$clock_drift
 
-sync_fit <- fit_drift(sync_model,      
-                      detlst_24,
-                      cores = 4, iter = 4000)
-
+# Fit drift values using Bayesian HMC model
+sync_fit <- fit_drift(sync_model, detlst_24, cores = 4, iter = 4000)
+sync_fit
 plot(sync_fit)
 rstan::traceplot(sync_fit@stan[[1]])
 
-plot(detlst_24)
-latency <- SyncTagLatency(detlst_24)
-plot(SyncTagLatency(detlst = detlst_24))
-
-fit_offsets(clocksync = sync_model, detlst = detlst_24)
-
-detlst_corr <- synchronize(sync_fit, detlst_24) 
+# Fit clock offsets
+sync_fit_2 <- fit_offsets(clocksync = sync_fit, detlst = detlst_24)
+# For every receiver pair with few or no sync tag detections, a warning will pop up.
+# kaltoa knows how to deal with these.
 ```
+
+Plot clock drift and offset corrections.
+
+```{r}
+detlst_corr_1 <- synchronize(sync_fit, detlst_24) 
+plot(SyncTagLatency(detlst_corr_1))
+
+detlst_corr_2 <- synchronize(sync_fit_2, detlst_24) 
+plot(SyncTagLatency(detlst_corr_2))
+```
+
+Apply receiver locations corrections.
+For receiver positions, you need to apply this to a DetectionsList that has had the clock drift removed beforehand.
+
+```{r}
+SyncTagConnectivity(detlst_corr_1)
+
+plot(detlst_corr_1)
+rec_pos <- KaltoaReceiverPositions(detlst = detlst_corr_1, ref_receivers = c("62208", "62920"), init_sd = 20)
+rec_pos
+
+# Update positions in raw data
+detlst_24_2 <- detlst_24 
+array_positions(detlst_24_2) <- rec_pos$positions
+
+plot(detlst_24_2, main = "Updated Array Positions")
+points(array_positions(detlst_24), col = 'red')
+legend(x = 'bottomright', legend = c("new", "old"), pch = 1, col = c("black", "red"))
+```
+
+Set `init_sd` to higher values for stronger receiver positions corrections.
+
+Refit clock offsets.
+
+```{r}
+sync_fit_3 <- fit_offsets(sync_fit, detlst_24_2)
+
+detlst_24_final <- synchronize(sync_fit_3, detlst_24_2)
+
+# Show old clock offset corrections
+plot(SyncTagLatency(detlst_corr_2))
+
+# Show new clock offset corrections
+plot(SyncTagLatency(detlst_24_final))
+
+```
+
