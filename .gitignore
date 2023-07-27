@@ -2,8 +2,12 @@
 .Rhistory
 .RData
 .Ruserdata
+
 junk/
 data/
+images/
+
 *_files/
 *.rds
 *.html
+*.log
