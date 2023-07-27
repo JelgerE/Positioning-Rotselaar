@@ -62,16 +62,16 @@ time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
 # Save a list fo detections objects
 dets <- list()
 for(i in 1:nrow(meta)){
-  #print(meta$Serial_number[i])
+  print(meta$Serial_number[i])
   # load detections into temporary data.frame
   file = meta$file[i]
   tmp <- read.csv(paste(path, file, sep = '/'))
   
   # Find times of interest
-  times <- tmp$Device.Time..UTC.#as.POSIXct(tmp[[i]]$Device.Time..UTC., format = "%Y-%m-%d %H:%M:%OS")
+  times <- as.POSIXct(tmp$Device.Time..UTC., format = "%Y-%m-%d %H:%M:%OS")
   idx <- which(times >= time_start & times <= time_stop)
   
-  detect_times <- iso2DetectionTime(times[idx])
+  detect_times <- iso2DetectionTime(tmp$Device.Time..UTC.[idx])
   
   # ------ Save as detections object
   # Auxiliary data that might be interesting to keep
@@ -125,7 +125,8 @@ SyncTagConnectivity(detlst)
 ```{r}
 sync_order = data.frame(
   emit = c("62208"),
-  detect = c("62206", "62207", "62208", "62211", "62551", "62552", "62553", "62920"))
+  detect = c("62207", "62211", "62552", "62553", "62920")#c("62206", "62207", "62208", "62211", "62551", "62552", "62553", "62920")
+  )
 
 # subset 24 hour of detections data
 offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"),
