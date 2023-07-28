@@ -56,8 +56,13 @@ meta
 path <- "./data/Detections"
 
 # times to filter
-time_start <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
-time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
+# 1 week
+#time_start <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
+#time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
+
+# 1 day
+time_start <- as.POSIXct("03-05-2023", format="%d-%m-%Y", tz="UTC")
+time_stop <- as.POSIXct("04-05-2023", format="%d-%m-%Y", tz="UTC")
 
 # Save a list fo detections objects
 dets <- list()
@@ -83,7 +88,7 @@ for(i in 1:nrow(meta)){
   coord <- st_coordinates(meta$geometry[i])
   # Make detections object
   dets[[i]] <- Detections(
-    detect_times = iso2DetectionTime(times[idx]), 
+    detect_times = detect_times, 
     detect_id = tmp$ID[idx], 
     type = tmp$Detection.Type[idx], 
     send_id = meta$Tag_ID[i], 
@@ -109,7 +114,7 @@ detlst_filt <- subset(
 detlst <- detlst_filt
 
 #detlst
-plot(detlst_filt)
+plot(detlst)
 
 # Save as a RData file
 saveRDS(object = detlst, file = "./Positioning_(James)_detlst.rds")
@@ -125,7 +130,7 @@ SyncTagConnectivity(detlst)
 ```{r}
 sync_order = data.frame(
   emit = c("62208"),
-  detect = c("62207", "62211", "62552", "62553", "62920")#c("62206", "62207", "62208", "62211", "62551", "62552", "62553", "62920")
+  detect = c("62207", "62211", "62552", "62553", "62920")
   )
 
 # subset 24 hour of detections data
@@ -141,23 +146,23 @@ sync_model <- KaltoaClockSync(sync_order = sync_order,
                               clock_time = offset_times,
                               offset_max = 120)
 
-int_drft <- init_drift(sync_model, detlst_24)
+int_drft <- init_drift(sync_model, detlst)
 int_drft
 
 drift(sync_model) <- int_drft$clock_drift
 
 sync_fit <- fit_drift(sync_model,      
-                      detlst_24,
+                      detlst,
                       cores = 4, iter = 4000)
 
 plot(sync_fit)
 rstan::traceplot(sync_fit@stan[[1]])
 
-plot(detlst_24)
-latency <- SyncTagLatency(detlst_24)
-plot(SyncTagLatency(detlst = detlst_24))
+sync_fit2 <- fit_offsets(clocksync = sync_fit, detlst = detlst)
 
-fit_offsets(clocksync = sync_model, detlst = detlst_24)
+plot(detlst)
+latency <- SyncTagLatency(detlst)
+plot(SyncTagLatency(detlst = detlst))
 
-detlst_corr <- synchronize(sync_fit, detlst_24) 
+#detlst_tmp_2 <- synchronize(clocksync = sync_fit_2, detlst = moerrumsaan_detlst_raw)
 ```
