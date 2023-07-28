@@ -1,0 +1,211 @@
+---
+title: "Positioning"
+author: "Jelger Elings"
+date: "2023-06-28"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+
+to fix:
+ => fit_offset does not run. Needs latency object? 
+  -> running SyncTagLatency shows latency object for 1 rec-pair only (62551-62552). Why not the others? 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, results = "hide")
+
+require(kaltoa, quietly = T)
+require(sf, quietly = T)
+require(ggpot2, quietly = T)
+require(stringr, quietly = T)
+
+options(digits = 15)
+```
+
+Load metadata and get UTM projections of receiver locations.
+It seems like one of our synchronization tags has an erroneous tag_ID.
+From the vdat's and csv's it seems like tag_ID 62209 needs to be changed to 62920.
+
+```{r, read receiver locations, echo=TRUE}
+recs <- read.csv("./data/Receivers_IDs_locaties_deployment_2023.csv") %>%
+  st_as_sf(coords = c('Long', 'Lat'), crs="EPSG:4326", remove=F) %>%
+  st_transform(crs="EPSG:32632")
+# Remove HR column
+recs <-subset(recs, Detection.Type != "HR")
+if (62209 %in% recs$Tag_ID) {
+  recs[(recs$Tag_ID == 62209),]$Tag_ID <- 62920
+}
+
+fish.ids <- read.csv("./data/Tagged fish_2022.csv")
+```
+
+
+```{r, Add list of file names to metadata table}
+files_df <- data.frame(file = dir(path = "./data/Detections/", pattern = "*.\\.csv"))
+mtch <- stringr::str_match(files_df$file, "HR2-180 (\\d+)\\.csv")
+files_df$Serial_number <- mtch[,2]
+
+meta <- merge(files_df, recs, by = "Serial_number")
+meta <- subset(meta, select = c("Serial_number", "file", "Tag_ID", "Full_Tag_ID", "geometry"))
+meta
+```
+
+```{r, Loop through files, and create time filtered detections object for each receiver}
+path <- "./data/Detections"
+
+# times to filter
+# 1 week
+time_start <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
+time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
+
+# 1 day
+#time_start <- as.POSIXct("03-05-2023", format="%d-%m-%Y", tz="UTC")
+#time_stop <- as.POSIXct("04-05-2023", format="%d-%m-%Y", tz="UTC")
+
+# Save a list fo detections objects
+dets <- list()
+for(i in 1:nrow(meta)){
+  print(meta$Serial_number[i])
+  # load detections into temporary data.frame
+  file = meta$file[i]
+  tmp <- read.csv(paste(path, file, sep = '/'))
+  
+  # Find times of interest
+  times <- as.POSIXct(tmp$Device.Time..UTC., format = "%Y-%m-%d %H:%M:%OS")
+  idx <- which(times >= time_start & times <= time_stop)
+  
+  detect_times <- iso2DetectionTime(tmp$Device.Time..UTC.[idx])
+  
+  # ------ Save as detections object
+  # Auxiliary data that might be interesting to keep
+  df_aux = data.frame(
+    db_signal = tmp$Signal.Strength..dB.[idx],
+    db_noise = tmp$Noise..dB.[idx],
+    quality = tmp$Quality.Score[idx])
+  # Coordinate of receiver
+  coord <- st_coordinates(meta$geometry[i])
+  # Make detections object
+  dets[[i]] <- Detections(
+    detect_times = detect_times, 
+    detect_id = tmp$ID[idx], 
+    type = tmp$Detection.Type[idx], 
+    send_id = meta$Tag_ID[i], 
+    x = coord[1], 
+    y = coord[2], 
+    sync_tags = meta$Tag_ID[i], 
+    aux = df_aux)
+}
+rm(tmp)
+
+# Convert list of Detections into a DetectionsList object
+detlst <- as.DetectionsList(dets)
+```
+
+# Synchronizing the clocks
+
+The clock synchronization will be done with HR pings only. 
+
+```{r}
+# Ignore (1) HR_self emissions, and (2) HR detections that match the IDs of sync tags.
+detlst_filt <- subset(
+  detlst, type != "HR_SELF" & !(type == "HR" & detect_id %in% meta$Tag_ID))
+detlst <- detlst_filt
+
+#detlst
+plot(detlst)
+
+# Save as a RData file
+#saveRDS(object = detlst, file = "./Positioning_(James)_detlst.rds")
+```
+
+Before syncing, lets make a table showing the sync-tag detections across receiver pairs.
+This will inform us for the sync-order specification. Receiver 62208's tag seems to have the best detections in the array. We'll use this as the central receiver
+
+```{r}
+SyncTagConnectivity(detlst)
+```
+
+```{r}
+sync_order = data.frame(
+  emit = c("62208"),
+  detect = c("62206", "62207", "62211", "62551", "62552", "62553", "62920"))
+
+# subset 24 hour of detections data
+offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"),
+                    as.POSIXct("2023-05-04 02:00:00"),
+                    by=3600)
+detlst_24 <- subset(
+  detlst_filt,
+  time >= offset_times[1] & time <= offset_times[length(offset_times)])
+
+# Init a clocksync model
+sync_model <- KaltoaClockSync(sync_order = sync_order,
+                              min_interval = 270, max_interval = 330,
+                              max_transmission_latency = 120,
+                              clock_time = offset_times,
+                              offset_max = 120)
+
+# Estimate initial drift values
+int_drft
+drift(sync_model) <- int_drft$clock_drift
+
+# Fit drift values using Bayesian HMC model
+sync_fit <- fit_drift(sync_model, detlst_24, cores = 4, iter = 4000)
+sync_fit
+plot(sync_fit)
+rstan::traceplot(sync_fit@stan[[1]])
+
+# Fit clock offsets
+sync_fit_2 <- fit_offsets(clocksync = sync_fit, detlst = detlst_24)
+# For every receiver pair with few or no sync tag detections, a warning will pop up.
+# kaltoa knows how to deal with these.
+```
+
+Plot clock drift and offset corrections.
+
+```{r}
+detlst_corr_1 <- synchronize(sync_fit, detlst_24) 
+plot(SyncTagLatency(detlst_corr_1))
+
+detlst_corr_2 <- synchronize(sync_fit_2, detlst_24) 
+plot(SyncTagLatency(detlst_corr_2))
+```
+
+Apply receiver locations corrections.
+For receiver positions, you need to apply this to a DetectionsList that has had the clock drift removed beforehand.
+
+```{r}
+SyncTagConnectivity(detlst_corr_1)
+
+plot(detlst_corr_1)
+rec_pos <- KaltoaReceiverPositions(detlst = detlst_corr_1, ref_receivers = c("62208", "62920"), init_sd = 20)
+rec_pos
+
+# Update positions in raw data
+detlst_24_2 <- detlst_24 
+array_positions(detlst_24_2) <- rec_pos$positions
+
+plot(detlst_24_2, main = "Updated Array Positions")
+points(array_positions(detlst_24), col = 'red')
+legend(x = 'bottomright', legend = c("new", "old"), pch = 1, col = c("black", "red"))
+```
+
+Set `init_sd` to higher values for stronger receiver positions corrections.
+
+Refit clock offsets.
+
+```{r}
+sync_fit_3 <- fit_offsets(sync_fit, detlst_24_2)
+
+detlst_24_final <- synchronize(sync_fit_3, detlst_24_2)
+
+# Show old clock offset corrections
+plot(SyncTagLatency(detlst_corr_2))
+
+# Show new clock offset corrections
+plot(SyncTagLatency(detlst_24_final))
+
+```
+
