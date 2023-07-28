@@ -83,7 +83,7 @@ for(i in 1:nrow(meta)){
   coord <- st_coordinates(meta$geometry[i])
   # Make detections object
   dets[[i]] <- Detections(
-    detect_times = iso2DetectionTime(times[idx]), 
+    detect_times = detect_times, 
     detect_id = tmp$ID[idx], 
     type = tmp$Detection.Type[idx], 
     send_id = meta$Tag_ID[i], 
@@ -95,7 +95,7 @@ for(i in 1:nrow(meta)){
 rm(tmp)
 
 # Convert list of Detections into a DetectionsList object
-detlst <- do.call(DetectionsList, dets)
+detlst <- as.DetectionsList(dets)
 ```
 
 # Synchronizing the clocks
@@ -125,12 +125,7 @@ SyncTagConnectivity(detlst)
 ```{r}
 sync_order = data.frame(
   emit = c("62208"),
-<<<<<<< HEAD
   detect = c("62206", "62207", "62211", "62551", "62552", "62553", "62920"))
-=======
-  detect = c("62207", "62211", "62552", "62553", "62920")#c("62206", "62207", "62208", "62211", "62551", "62552", "62553", "62920")
-  )
->>>>>>> bb4284f7dbb1cac7e706245832c38c3a12465c96
 
 # subset 24 hour of detections data
 offset_times <- seq(as.POSIXct("2023-05-03 02:00:00"),
