@@ -56,13 +56,8 @@ meta
 path <- "./data/Detections"
 
 # times to filter
-# 1 week
 time_start <- as.POSIXct("01-05-2023", format="%d-%m-%Y", tz="UTC")
 time_stop <- as.POSIXct("08-05-2023", format="%d-%m-%Y", tz="UTC")
-
-# 1 day
-#time_start <- as.POSIXct("03-05-2023", format="%d-%m-%Y", tz="UTC")
-#time_stop <- as.POSIXct("04-05-2023", format="%d-%m-%Y", tz="UTC")
 
 # Save a list fo detections objects
 dets <- list()
@@ -114,7 +109,7 @@ detlst_filt <- subset(
 detlst <- detlst_filt
 
 #detlst
-plot(detlst)
+plot(detlst_filt)
 
 # Save as a RData file
 #saveRDS(object = detlst, file = "./Positioning_(James)_detlst.rds")
@@ -148,6 +143,7 @@ sync_model <- KaltoaClockSync(sync_order = sync_order,
                               offset_max = 120)
 
 # Estimate initial drift values
+int_drft <- init_drift(sync_model, detlst_24)
 int_drft
 drift(sync_model) <- int_drft$clock_drift
 
@@ -208,4 +204,3 @@ plot(SyncTagLatency(detlst_corr_2))
 plot(SyncTagLatency(detlst_24_final))
 
 ```
-
