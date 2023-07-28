@@ -12,6 +12,7 @@ data/
 *.html
 # Ignore local data folder
 /data
+/images
 
 # ???
 junk/
